@@ -1,5 +1,5 @@
-import { encodeFunctionData, parseAbi, type Hex } from 'viem'
-import { account, pub, sendTagged } from './wallet.js'
+import { encodeFunctionData, erc20Abi, parseAbi, parseEventLogs, type Hex } from 'viem'
+import { account, pub, sendTaggedReceipt } from './wallet.js'
 import { ensureAllowance } from './swap.js'
 import { TOKENS, UNI, type TokenKey } from './config.js'
 
@@ -35,10 +35,11 @@ export async function uniQuote(tin: TokenKey, tout: TokenKey, amountIn: bigint) 
 }
 
 // Tagged swap through SwapRouter02. Reverts onchain if output < minOut.
-export async function uniSwap(tin: TokenKey, tout: TokenKey, amountIn: bigint, fee: number, minOut: bigint): Promise<Hex> {
+// Returns the amount received, read from the swap's own receipt (never a stale balance read).
+export async function uniSwap(tin: TokenKey, tout: TokenKey, amountIn: bigint, fee: number, minOut: bigint): Promise<{ hash: Hex; out: bigint }> {
   await verifyRouter()
   await ensureAllowance(TOKENS[tin].address, UNI.ROUTER, amountIn)
-  return sendTagged({
+  const receipt = await sendTaggedReceipt({
     to: UNI.ROUTER,
     data: encodeFunctionData({
       abi: routerAbi,
@@ -49,4 +50,9 @@ export async function uniSwap(tin: TokenKey, tout: TokenKey, amountIn: bigint, f
       }],
     }),
   })
+  const out = parseEventLogs({ abi: erc20Abi, logs: receipt.logs, eventName: 'Transfer' })
+    .filter((l) => l.address.toLowerCase() === TOKENS[tout].address.toLowerCase() && l.args.to.toLowerCase() === account.address.toLowerCase())
+    .reduce((sum, l) => sum + l.args.value, 0n)
+  if (out === 0n) throw new Error(`Swap ${receipt.transactionHash} succeeded but no ${tout} transfer to the agent was found`)
+  return { hash: receipt.transactionHash, out }
 }

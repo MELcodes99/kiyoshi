@@ -24,13 +24,36 @@ export async function swap(sell: TokenKey, buy: TokenKey, sellAmount: bigint, mi
   const sellToken = TOKENS[sell].address
   const buyToken = TOKENS[buy].address
 
-  const bal = await balanceOf(sellToken)
+  // Public RPCs can lag a block or two behind a fresh receipt, so wait for the balance to appear.
+  let bal = await balanceOf(sellToken)
+  for (let i = 0; bal < sellAmount && i < 15; i++) {
+    await new Promise((r) => setTimeout(r, 1000))
+    bal = await balanceOf(sellToken)
+  }
   if (bal < sellAmount) throw new Error(`Not enough ${sell}: have ${bal}, need ${sellAmount}`)
 
   // Approve before quoting so the 60s quote window is not spent on approvals.
   await ensureAllowance(sellToken, TEXTILE_REACTOR, sellAmount)
 
-  const q = await requestQuote({ sellToken, buyToken, sellAmount: sellAmount.toString() })
+  // Textile also checks our balance onchain and can briefly lag the same way; retry that case only.
+  let q: any
+  for (let i = 0; ; i++) {
+    try {
+      q = await requestQuote({ sellToken, buyToken, sellAmount: sellAmount.toString() })
+      break
+    } catch (e: any) {
+      const msg = String(e.message)
+      if (i < 3 && msg.includes('insufficient_funds')) {
+        // Either the RPC is a block behind, or Textile still reserves funds from an earlier quote.
+        const m = msg.match(/"retryAfterMs":(\d+)/)
+        const wait = m ? Math.min(Number(m[1]) + 2000, 120_000) : 3000
+        console.log(`  Textile still sees those funds as reserved, waiting ${Math.round(wait / 1000)}s`)
+        await new Promise((r) => setTimeout(r, wait))
+        continue
+      }
+      throw e
+    }
+  }
   if (q.status === 'no_quote') return { status: 'no_quote' as const, reason: q.reason as string }
 
   const { rfqId, claimToken, quote, transactions } = q

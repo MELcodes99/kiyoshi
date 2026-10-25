@@ -52,6 +52,7 @@ async function equity() {
 
 // Sell leftover inventory from a half-finished cycle.
 async function flatten() {
+  let soldOnTextile = false
   for (const X of CORRIDORS) {
     const bal = await balanceOf(TOKENS[X].address)
     if (bal === 0n) continue
@@ -60,13 +61,15 @@ async function flatten() {
     console.log(`  flatten: ${amt(X, bal).toFixed(4)} ${X} -> ~${usd(exit.out).toFixed(4)} USDT via ${exit.venue}`)
     if (!LIVE) continue
     if (exit.venue === 'uniswap') {
-      const tx = await uniSwap(X, 'USDT', bal, exit.fee!, withSlippage(exit.out))
-      log({ event: 'flatten', X, venue: 'uniswap', amountIn: bal, tx })
+      const { hash: tx, out } = await uniSwap(X, 'USDT', bal, exit.fee!, withSlippage(exit.out))
+      log({ event: 'flatten', X, venue: 'uniswap', amountIn: bal, tx, out })
     } else {
       const r = await textileSwap(X, 'USDT', bal, withSlippage(exit.out))
       log({ event: 'flatten', X, venue: 'textile', amountIn: bal, result: r })
+      if (r.status === 'filled') soldOnTextile = true
     }
   }
+  return soldOnTextile
 }
 
 type Opp = { X: TokenKey; route: 'uni->textile' | 'textile->uni'; size: bigint; mid: bigint; out: bigint; uniFee: number; edge: number }
@@ -88,9 +91,7 @@ async function scan(size: bigint): Promise<Opp[]> {
 async function execute(o: Opp) {
   const X = o.X
   if (o.route === 'uni->textile') {
-    const before = await balanceOf(TOKENS[X].address)
-    const tx1 = await uniSwap('USDT', X, o.size, o.uniFee, withSlippage(o.mid))
-    const got = (await balanceOf(TOKENS[X].address)) - before
+    const { hash: tx1, out: got } = await uniSwap('USDT', X, o.size, o.uniFee, withSlippage(o.mid))
     // Sell on Textile only if the firm quote still breaks even; otherwise keep inventory for flatten().
     const r = await textileSwap(X, 'USDT', got, o.size)
     log({ event: 'cycle', X, route: o.route, size: o.size, tx1, leg2: r, pnl: r.status === 'filled' ? usd(r.received) - usd(o.size) : null })
@@ -100,16 +101,17 @@ async function execute(o: Opp) {
     if (r.status !== 'filled') { log({ event: 'cycle', X, route: o.route, size: o.size, leg1: r }); return null }
     const q = await uniQuote(X, 'USDT', r.received)
     if (!q) { log({ event: 'cycle', X, route: o.route, leg1: r, leg2: 'no_uniswap_quote' }); return null }
-    const before = await balanceOf(TOKENS.USDT.address)
-    const tx2 = await uniSwap(X, 'USDT', r.received, q.fee, withSlippage(q.out))
-    const out = (await balanceOf(TOKENS.USDT.address)) - before
+    const { hash: tx2, out } = await uniSwap(X, 'USDT', r.received, q.fee, withSlippage(q.out))
     log({ event: 'cycle', X, route: o.route, size: o.size, tx1: r.txHash, tx2, pnl: usd(out) - usd(o.size) })
     return usd(out) - usd(o.size)
   }
 }
 
 async function cycle() {
-  await flatten()
+  if (await flatten()) {
+    console.log('  sold leftovers on Textile; letting it settle before the next trade')
+    return
+  }
   const cash = await balanceOf(TOKENS.USDT.address)
   const cap = parseUnits(String(MAX_TRADE_USD), 6)
   const size = LIVE ? (cash * 90n / 100n < cap ? cash * 90n / 100n : cap) : cap
