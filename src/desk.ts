@@ -252,10 +252,26 @@ if (!Number.isFinite(state.baselineEquity)) throw new Error('BASELINE_EQUITY is 
 status.baselineEquity = state.baselineEquity
 status.since = state.since
 
+// ---------- safe shutdown (Render redeploys run old and new copies side by side briefly) ----------
+let stopping = false
+let inCycle = false
+process.on('SIGTERM', () => {
+  stopping = true
+  console.log('  SIGTERM received' + (inCycle ? '; finishing the current cycle first' : ''))
+  if (!inCycle) process.exit(0)
+})
+const STARTUP_DELAY_MS = Number(process.env.STARTUP_DELAY_SEC ?? (LIVE ? '60' : '0')) * 1000
+if (STARTUP_DELAY_MS > 0) {
+  console.log('Waiting ' + STARTUP_DELAY_MS / 1000 + 's before trading so any previous copy can finish and shut down')
+  await sleep(STARTUP_DELAY_MS)
+}
+
 // ---------- main loop ----------
 console.log(`Kiyoshi ${LIVE ? 'LIVE' : 'DRY RUN'} | wallet ${account.address} | max trade $${MAX_TRADE_USD} | min edge $${MIN_EDGE_USD} | every ${INTERVAL_MS / 1000}s`)
 while (true) {
   console.log(`\n[${new Date().toISOString()}]`)
+  if (stopping) break
+  inCycle = true
   try {
     await cycle()
     const eq = await equity()
@@ -269,6 +285,8 @@ while (true) {
     status.lastError = { at: new Date().toISOString(), message: msg }
     log({ event: 'error', message: msg })
   }
+  inCycle = false
+  if (stopping) { console.log('  shutdown requested; exiting cleanly between cycles'); process.exit(0) }
   if (ONCE && !PORT) break
   await sleep(INTERVAL_MS)
 }
