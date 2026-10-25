@@ -8,6 +8,7 @@ import { account, pub, lastTxBlock } from './wallet.js'
 import { balanceOf, swap as textileSwap } from './swap.js'
 import { preview } from './textile.js'
 import { uniQuote, uniSwap } from './uniswap.js'
+import { convertStats, handleConvert } from './convert.js'
 
 const LIVE = process.env.LIVE === '1'
 const MAX_TRADE_USD = Number(process.env.MAX_TRADE_USD ?? '20')
@@ -61,6 +62,7 @@ function summary() {
     realizedPnl: cycles.reduce((s, f) => s + f.pnl, 0),
     completedCycles: cycles.length,
     textileFills: fills.filter((f) => typeof f.textileUsd === 'number').length,
+    convert: convertStats,
     textileVolumeUsd: fills.reduce((s, f) => s + (typeof f.textileUsd === 'number' ? f.textileUsd : 0), 0),
   }
 }
@@ -226,7 +228,11 @@ async function cycle() {
 if (PORT) {
   createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end() }
     const url = new URL(req.url ?? '/', 'http://localhost')
+    if (url.pathname.startsWith('/convert/')) { handleConvert(req, res, url); return }
     const json = (body: unknown) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body, null, 2)) }
     if (url.pathname === '/health') return res.end('ok')
     if (url.pathname === '/status') return json(summary())
