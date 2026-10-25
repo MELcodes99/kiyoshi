@@ -3,8 +3,8 @@ import { account, pub, sendTagged } from './wallet.js'
 import { requestQuote, submitTx } from './textile.js'
 import { TEXTILE_REACTOR, TOKENS, type TokenKey } from './config.js'
 
-export async function balanceOf(token: Address) {
-  return pub.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [account.address] })
+export async function balanceOf(token: Address, blockNumber?: bigint) {
+  return pub.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [account.address], ...(blockNumber ? { blockNumber } : {}) })
 }
 
 export async function ensureAllowance(token: Address, spender: Address, required: bigint) {

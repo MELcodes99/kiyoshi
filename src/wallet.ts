@@ -13,12 +13,16 @@ const wallet = createWalletClient({ account, chain: celo, transport: http(RPC_UR
 
 export const TAG_SUFFIX = toDataSuffix(ATTRIBUTION_TAG) as Hex
 
+// Block of the agent's most recent transaction. Reads must not come from a node behind this.
+export let lastTxBlock = 0n
+
 // The ONLY way the agent sends transactions, so nothing ever goes out untagged.
 export async function sendTaggedReceipt(tx: { to: Address; data?: Hex; value?: bigint }): Promise<TransactionReceipt> {
   const data = concat([tx.data ?? '0x', TAG_SUFFIX])
   const hash = await wallet.sendTransaction({ to: tx.to, data, value: tx.value ?? 0n })
   const receipt = await pub.waitForTransactionReceipt({ hash })
   if (receipt.status !== 'success') throw new Error(`Transaction reverted: ${hash}`)
+  if (receipt.blockNumber > lastTxBlock) lastTxBlock = receipt.blockNumber
   return receipt
 }
 
