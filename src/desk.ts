@@ -19,8 +19,9 @@ const PORT = Number(process.env.PORT ?? 0)
 const ONCE = process.env.ONCE === '1'
 const SLIPPAGE_BPS = 30n // 0.3%
 const AGENT_ID = 9991
-const TRADES_FILE = 'trades.jsonl'
-const STATE_FILE = 'state.json'
+const DATA_DIR = process.env.DATA_DIR ?? '.'
+const TRADES_FILE = DATA_DIR + '/trades.jsonl'
+const STATE_FILE = DATA_DIR + '/state.json'
 
 const usd = (v: bigint) => Number(formatUnits(v, 6))
 const amt = (k: TokenKey, v: bigint) => Number(formatUnits(v, TOKENS[k].decimals))
