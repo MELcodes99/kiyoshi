@@ -6,7 +6,8 @@
   "scripts": {
     "new-wallet": "tsx src/new-wallet.ts",
     "check": "tsx src/check.ts",
-    "trade": "tsx src/trade.ts"
+    "trade": "tsx src/trade.ts",
+    "desk": "tsx src/desk.ts"
   },
   "dependencies": {
     "@celo/attribution-tags": "latest",

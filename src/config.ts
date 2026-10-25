@@ -11,10 +11,22 @@ export const TEXTILE_API = 'https://api.textilecredit.com'
 // From docs.textilecredit.com/protocol/address-book (Celo 42220)
 export const TEXTILE_REACTOR: Address = '0xa9AA0a64769cBed4d3B1Ceb4Df01CdE915C235b3'
 
+// Uniswap v3 on Celo
+export const UNI = {
+  FACTORY: '0xAfE208a311B21f13EF87E33A90049fC17A7acDEc' as Address,
+  QUOTER: '0x82825d0554fA07f7FC52Ab63c961F330fdEFa8E8' as Address,
+  ROUTER: '0x5615CDAb10dc425a742d643d949a7F474C01abc4' as Address, // SwapRouter02
+}
+
 export const TOKENS = {
-  cNGN: { address: '0xF6829D7393dAe24509eb1E52eE8e572e2E271a4f' as Address, decimals: 6 },
   USDT: { address: '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e' as Address, decimals: 6 },
   USDC: { address: '0xcebA9300f2b948710d2653dD7B07f33A8B32118C' as Address, decimals: 6 },
+  cNGN: { address: '0xF6829D7393dAe24509eb1E52eE8e572e2E271a4f' as Address, decimals: 6 },
+  wBRL: { address: '0xD76f5Faf6888e24D9F04Bf92a0c8B921FE4390e0' as Address, decimals: 18 },
+  wARS: { address: '0x0DC4F92879B7670e5f4e4e6e3c801D229129D90D' as Address, decimals: 18 },
 } as const
 
 export type TokenKey = keyof typeof TOKENS
+
+// Local-currency corridors the desk watches (Textile has a Celo corridor for each vs USDT)
+export const CORRIDORS: TokenKey[] = ['wBRL', 'wARS', 'cNGN']
