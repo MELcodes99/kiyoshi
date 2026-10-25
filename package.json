@@ -1,0 +1,19 @@
+{
+  "name": "naira-desk",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "new-wallet": "tsx src/new-wallet.ts",
+    "check": "tsx src/check.ts",
+    "trade": "tsx src/trade.ts"
+  },
+  "dependencies": {
+    "@celo/attribution-tags": "latest",
+    "dotenv": "^16.4.5",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}
