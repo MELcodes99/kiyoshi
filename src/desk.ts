@@ -1,4 +1,4 @@
-// Naira Desk trading loop. Dry run by default; LIVE=1 trades real money.
+// Kiyoshi trading loop. Dry run by default; LIVE=1 trades real money.
 // Set PORT to also serve /health, /status and /trades (for Render and the dashboard).
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -13,6 +13,8 @@ const LIVE = process.env.LIVE === '1'
 const MAX_TRADE_USD = Number(process.env.MAX_TRADE_USD ?? '20')
 const MIN_EDGE_USD = Number(process.env.MIN_EDGE_USD ?? '0.01')
 const INTERVAL_MS = Number(process.env.INTERVAL_SEC ?? '60') * 1000
+const MAX_FLATTEN_LOSS_BPS = BigInt(process.env.MAX_FLATTEN_LOSS_BPS ?? '50') // 0.5%
+const MAX_HOLD_MS = Number(process.env.MAX_HOLD_MIN ?? '30') * 60_000
 const PORT = Number(process.env.PORT ?? 0)
 const ONCE = process.env.ONCE === '1'
 const SLIPPAGE_BPS = 30n // 0.3%
@@ -24,6 +26,10 @@ const usd = (v: bigint) => Number(formatUnits(v, 6))
 const amt = (k: TokenKey, v: bigint) => Number(formatUnits(v, TOKENS[k].decimals))
 const withSlippage = (v: bigint) => (v * (10_000n - SLIPPAGE_BPS)) / 10_000n
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// Inventory left by a half-finished cycle, with what it cost, so flatten() won't dump it at a big loss.
+const pending = new Map<TokenKey, { costUsdt: bigint; since: number }>()
+let holdingInventory = false
 
 // ---------- ledger ----------
 type Entry = Record<string, any>
@@ -43,8 +49,8 @@ function log(entry: Entry) {
 const status: Entry = {
   agent: { name: 'Kiyoshi', wallet: account.address, erc8004AgentId: AGENT_ID, attributionTag: ATTRIBUTION_TAG },
   live: LIVE, startedAt: new Date().toISOString(),
-  config: { maxTradeUsd: MAX_TRADE_USD, minEdgeUsd: MIN_EDGE_USD, intervalSec: INTERVAL_MS / 1000 },
-  lastScan: null, equity: null, baselineEquity: null, since: null, lastError: null,
+  config: { maxTradeUsd: MAX_TRADE_USD, minEdgeUsd: MIN_EDGE_USD, intervalSec: INTERVAL_MS / 1000, maxFlattenLossBps: Number(MAX_FLATTEN_LOSS_BPS), maxHoldMin: MAX_HOLD_MS / 60_000 },
+  lastScan: null, equity: null, baselineEquity: null, since: null, holding: false, lastError: null,
 }
 function summary() {
   const cycles = fills.filter((f) => f.event === 'cycle' && typeof f.pnl === 'number')
@@ -99,26 +105,42 @@ async function equity() {
   return total
 }
 
-// Sell leftovers from a half-finished cycle. Returns true if it sold on Textile.
+// Sell leftovers from a half-finished cycle, unless that would lose more than the guard allows.
+// Returns true if it sold on Textile (so the next trade waits for Textile to settle).
 async function flatten() {
   let soldOnTextile = false
+  holdingInventory = false
   for (const X of CORRIDORS) {
     const bal = await balanceOf(TOKENS[X].address)
-    if (bal === 0n) continue
+    if (bal === 0n) { pending.delete(X); continue }
     const exit = await bestExit(X, bal)
     if (!exit || usd(exit.out) < 1) continue // dust, or below Textile's $1 minimum
+
+    const p = pending.get(X)
+    if (p) {
+      const floor = (p.costUsdt * (10_000n - MAX_FLATTEN_LOSS_BPS)) / 10_000n
+      const age = Date.now() - p.since
+      if (exit.out < floor && age < MAX_HOLD_MS) {
+        console.log(`  holding ${amt(X, bal).toFixed(4)} ${X}: best exit $${usd(exit.out).toFixed(4)} vs cost $${usd(p.costUsdt).toFixed(4)}, waiting for a better price (${Math.round(age / 60_000)}/${MAX_HOLD_MS / 60_000} min)`)
+        holdingInventory = true
+        continue
+      }
+    }
+
     console.log(`  flatten: ${amt(X, bal).toFixed(4)} ${X} -> ~${usd(exit.out).toFixed(4)} USDT via ${exit.venue}`)
     if (!LIVE) continue
     if (exit.venue === 'uniswap') {
       const { hash: tx, out } = await uniSwap(X, 'USDT', bal, exit.fee!, withSlippage(exit.out))
-      log({ event: 'flatten', X, venue: 'uniswap', amountIn: bal, tx, usdtOut: usd(out) })
+      log({ event: 'flatten', X, venue: 'uniswap', amountIn: bal, tx, usdtOut: usd(out), costUsdt: p ? usd(p.costUsdt) : null })
+      pending.delete(X)
     } else {
       const r = await textileSwap(X, 'USDT', bal, withSlippage(exit.out))
       const filled = r.status === 'filled'
-      log({ event: 'flatten', X, venue: 'textile', amountIn: bal, result: r, ...(filled ? { tx: r.txHash, usdtOut: usd(r.received), textileUsd: usd(r.received) } : {}) })
-      if (filled) soldOnTextile = true
+      log({ event: 'flatten', X, venue: 'textile', amountIn: bal, result: r, costUsdt: p ? usd(p.costUsdt) : null, ...(filled ? { tx: r.txHash, usdtOut: usd(r.received), textileUsd: usd(r.received) } : {}) })
+      if (filled) { soldOnTextile = true; pending.delete(X) } else holdingInventory = true
     }
   }
+  status.holding = holdingInventory
   return soldOnTextile
 }
 
@@ -135,24 +157,29 @@ async function scan(size: bigint): Promise<Opp[]> {
     const b2 = b1 ? await uniQuote(X, 'USDT', b1) : null
     if (b1 && b2) opps.push({ X, route: 'textile->uni', size, mid: b1, out: b2.out, uniFee: b2.fee, edge: usd(b2.out) - usd(size) })
   }
-  return opps.sort((a, b) => b.edge - a.edge)
+  return opps
 }
 
 async function execute(o: Opp): Promise<number | null> {
   const X = o.X
   if (o.route === 'uni->textile') {
     const { hash: tx1, out: got } = await uniSwap('USDT', X, o.size, o.uniFee, withSlippage(o.mid))
-    // Sell on Textile only if the firm quote still breaks even; otherwise keep inventory for flatten().
+    // Sell on Textile only if the firm quote still breaks even; otherwise hold it for flatten().
     const r = await textileSwap(X, 'USDT', got, o.size)
     const filled = r.status === 'filled'
     const pnl = filled ? usd(r.received) - usd(o.size) : null
+    if (!filled) pending.set(X, { costUsdt: o.size, since: Date.now() })
     log({ event: 'cycle', X, route: o.route, sizeUsd: usd(o.size), tx1, leg2: r.status, ...(filled ? { tx2: r.txHash, textileUsd: usd(r.received) } : {}), pnl })
     return pnl
   }
   const r = await textileSwap('USDT', X, o.size, withSlippage(o.mid))
   if (r.status !== 'filled') { log({ event: 'cycle', X, route: o.route, sizeUsd: usd(o.size), leg1: r.status, pnl: null }); return null }
   const q = await uniQuote(X, 'USDT', r.received)
-  if (!q) { log({ event: 'cycle', X, route: o.route, sizeUsd: usd(o.size), tx1: r.txHash, textileUsd: usd(o.size), leg2: 'no_uniswap_quote', pnl: null }); return null }
+  if (!q) {
+    pending.set(X, { costUsdt: o.size, since: Date.now() })
+    log({ event: 'cycle', X, route: o.route, sizeUsd: usd(o.size), tx1: r.txHash, textileUsd: usd(o.size), leg2: 'no_uniswap_quote', pnl: null })
+    return null
+  }
   const { hash: tx2, out } = await uniSwap(X, 'USDT', r.received, q.fee, withSlippage(q.out))
   const pnl = usd(out) - usd(o.size)
   log({ event: 'cycle', X, route: o.route, sizeUsd: usd(o.size), tx1: r.txHash, tx2, textileUsd: usd(o.size), pnl })
@@ -164,6 +191,10 @@ async function cycle() {
     console.log('  sold leftovers on Textile; letting it settle before the next trade')
     return
   }
+  if (holdingInventory) {
+    console.log('  holding leftover inventory; no new trades until it is sold')
+    return
+  }
   const cash = await balanceOf(TOKENS.USDT.address)
   const cap = parseUnits(String(MAX_TRADE_USD), 6)
   const size = LIVE ? (cash * 90n / 100n < cap ? cash * 90n / 100n : cap) : cap
@@ -172,16 +203,21 @@ async function cycle() {
     return
   }
 
-  const opps = await scan(size)
-  for (const o of opps) console.log(`  ${o.X.padEnd(5)} ${o.route.padEnd(13)} $${usd(size).toFixed(2)} -> $${usd(o.out).toFixed(4)}  edge ${o.edge >= 0 ? '+' : ''}${o.edge.toFixed(4)}`)
-  status.lastScan = { at: new Date().toISOString(), sizeUsd: usd(size), opps: opps.map((o) => ({ X: o.X, route: o.route, outUsd: usd(o.out), edge: o.edge })) }
+  // Try a few sizes: bigger trades move Uniswap's price, so the best dollar profit is not always at max size.
+  const sizes = [...new Set([size, size / 2n, size / 4n])].filter((s) => s >= parseUnits('2', 6))
+  const opps: Opp[] = []
+  for (const s of sizes) opps.push(...(await scan(s)))
+  opps.sort((a, b) => b.edge - a.edge)
+
+  for (const o of opps.filter((o) => o.size === size)) console.log(`  ${o.X.padEnd(5)} ${o.route.padEnd(13)} $${usd(o.size).toFixed(2)} -> $${usd(o.out).toFixed(4)}  edge ${o.edge >= 0 ? '+' : ''}${o.edge.toFixed(4)}`)
+  status.lastScan = { at: new Date().toISOString(), maxSizeUsd: usd(size), opps: opps.map((o) => ({ X: o.X, route: o.route, sizeUsd: usd(o.size), outUsd: usd(o.out), edge: o.edge })) }
 
   const best = opps[0]
   if (!best || best.edge < MIN_EDGE_USD) { console.log(`  no trade: best edge below $${MIN_EDGE_USD}`); return }
-  console.log(`  >> ${LIVE ? 'TRADING' : 'would trade'}: ${best.X} ${best.route}, expected +$${best.edge.toFixed(4)}`)
+  console.log(`  >> ${LIVE ? 'TRADING' : 'would trade'}: ${best.X} ${best.route} at $${usd(best.size).toFixed(2)}, expected +$${best.edge.toFixed(4)}`)
   if (LIVE) {
     const pnl = await execute(best)
-    console.log(`  result: ${pnl === null ? 'incomplete (leftover will be flattened)' : (pnl >= 0 ? '+' : '') + pnl.toFixed(4) + ' USDT'}`)
+    console.log(`  result: ${pnl === null ? 'incomplete (leftover held and managed by flatten)' : (pnl >= 0 ? '+' : '') + pnl.toFixed(4) + ' USDT'}`)
   }
 }
 
@@ -212,6 +248,7 @@ if (process.env.BASELINE_EQUITY) {
   state = { baselineEquity: await equity(), since: new Date().toISOString() }
   if (LIVE) writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
 }
+if (!Number.isFinite(state.baselineEquity)) throw new Error('BASELINE_EQUITY is not a plain number (no $ or commas)')
 status.baselineEquity = state.baselineEquity
 status.since = state.since
 
