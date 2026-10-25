@@ -9,6 +9,7 @@ import { balanceOf, swap as textileSwap } from './swap.js'
 import { preview } from './textile.js'
 import { uniQuote, uniSwap } from './uniswap.js'
 import { convertStats, handleConvert } from './convert.js'
+import { flowSummary, netDeposits, updateFlows } from './flows.js'
 
 const LIVE = process.env.LIVE === '1'
 const MAX_TRADE_USD = Number(process.env.MAX_TRADE_USD ?? '20')
@@ -281,6 +282,10 @@ while (true) {
   inCycle = true
   try {
     await cycle()
+    await updateFlows().catch((e: any) => console.error('  flows:', e.shortMessage ?? e.message))
+    const net = netDeposits()
+    if (Number.isFinite(net) && net > 0) { state.baselineEquity = net; status.baselineEquity = net }
+    status.capital = flowSummary()
     const eq = await equity()
     status.equity = eq
     status.lastError = null
