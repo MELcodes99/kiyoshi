@@ -41,7 +41,7 @@ function log(entry: Entry) {
 }
 
 const status: Entry = {
-  agent: { name: 'Naira Desk', wallet: account.address, erc8004AgentId: AGENT_ID, attributionTag: ATTRIBUTION_TAG },
+  agent: { name: 'Kiyoshi', wallet: account.address, erc8004AgentId: AGENT_ID, attributionTag: ATTRIBUTION_TAG },
   live: LIVE, startedAt: new Date().toISOString(),
   config: { maxTradeUsd: MAX_TRADE_USD, minEdgeUsd: MIN_EDGE_USD, intervalSec: INTERVAL_MS / 1000 },
   lastScan: null, equity: null, baselineEquity: null, since: null, lastError: null,
@@ -216,7 +216,7 @@ status.baselineEquity = state.baselineEquity
 status.since = state.since
 
 // ---------- main loop ----------
-console.log(`Naira Desk ${LIVE ? 'LIVE' : 'DRY RUN'} | wallet ${account.address} | max trade $${MAX_TRADE_USD} | min edge $${MIN_EDGE_USD} | every ${INTERVAL_MS / 1000}s`)
+console.log(`Kiyoshi ${LIVE ? 'LIVE' : 'DRY RUN'} | wallet ${account.address} | max trade $${MAX_TRADE_USD} | min edge $${MIN_EDGE_USD} | every ${INTERVAL_MS / 1000}s`)
 while (true) {
   console.log(`\n[${new Date().toISOString()}]`)
   try {

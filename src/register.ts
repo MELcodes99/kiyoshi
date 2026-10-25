@@ -12,7 +12,7 @@ const abi = parseAbi([
   'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)',
 ])
 
-const NAME = process.env.AGENT_NAME ?? 'Naira Desk'
+const NAME = process.env.AGENT_NAME ?? 'Kiyoshi'
 const WEB = process.env.AGENT_WEB ?? 'https://github.com/MELcodes99'
 const DESCRIPTION =
   "Autonomous FX agent on Celo. Compares Textile FX RFQ quotes with Uniswap pools across Celo's local-currency corridors (cNGN, wBRL, wARS), trades the gaps when they beat costs, and logs every trade and its P&L. Built by Mel Okoye (0xJedi) for Agents on Open Rails."
