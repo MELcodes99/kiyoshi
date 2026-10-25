@@ -20,7 +20,7 @@ const file = {
   description:
     "Kiyoshi is an autonomous FX agent on Celo. It compares Textile FX RFQ quotes with Uniswap pools across Celo's local-currency corridors (wBRL, wARS, cNGN), trades the gaps when they beat costs, and publishes every trade and its P&L. Built by Mel Okoye (0xJedi) for Agents on Open Rails.",
   services: [
-    { name: 'web', endpoint: 'https://github.com/MELcodes99/naira-desk' },
+    { name: 'web', endpoint: 'https://github.com/MELcodes99/kiyoshi' },
     { name: 'status', endpoint: 'https://naira-desk.onrender.com/status' },
   ],
   x402Support: false,
