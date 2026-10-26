@@ -201,10 +201,12 @@ async function cycle() {
   }
   const cash = await balanceOf(TOKENS.USDT.address)
   const cap = parseUnits(String(MAX_TRADE_USD), 6)
-  const size = LIVE ? (cash * 90n / 100n < cap ? cash * 90n / 100n : cap) : cap
-  if (size < parseUnits('2', 6)) {
-    console.log(`  not enough USDT to trade (have ${usd(cash).toFixed(2)})`)
-    return
+  let size = LIVE ? (cash * 90n / 100n < cap ? cash * 90n / 100n : cap) : cap
+  const watchOnly = size < parseUnits('2', 6)
+  status.watchOnly = watchOnly
+  if (watchOnly) {
+    console.log(`  not enough USDT to trade (have ${usd(cash).toFixed(2)}); scanning in watch mode`)
+    size = cap
   }
 
   // Try a few sizes: bigger trades move Uniswap's price, so the best dollar profit is not always at max size.
@@ -218,6 +220,7 @@ async function cycle() {
 
   const best = opps[0]
   if (!best || best.edge < MIN_EDGE_USD) { console.log(`  no trade: best edge below $${MIN_EDGE_USD}`); return }
+  if (watchOnly) { console.log(`  watch mode: edge of $${best.edge.toFixed(4)} available, fund the wallet to trade it`); return }
   console.log(`  >> ${LIVE ? 'TRADING' : 'would trade'}: ${best.X} ${best.route} at $${usd(best.size).toFixed(2)}, expected +$${best.edge.toFixed(4)}`)
   if (LIVE) {
     const pnl = await execute(best)
@@ -284,7 +287,7 @@ while (true) {
     await cycle()
     await updateFlows().catch((e: any) => console.error('  flows:', e.shortMessage ?? e.message))
     const net = netDeposits()
-    if (Number.isFinite(net) && net > 0) { state.baselineEquity = net; status.baselineEquity = net }
+    if (Number.isFinite(net)) { state.baselineEquity = net; status.baselineEquity = net }
     status.capital = flowSummary()
     const eq = await equity()
     status.equity = eq
