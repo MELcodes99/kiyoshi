@@ -29,4 +29,4 @@ export const TOKENS = {
 export type TokenKey = keyof typeof TOKENS
 
 // Local-currency corridors the desk watches (Textile has a Celo corridor for each vs USDT)
-export const CORRIDORS: TokenKey[] = ['wBRL', 'wARS', 'cNGN']
+export const CORRIDORS: TokenKey[] = ['wBRL', 'wARS', 'cNGN', 'USDC']
