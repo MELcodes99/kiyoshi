@@ -15,6 +15,9 @@ const LIVE = process.env.LIVE === '1'
 const MAX_TRADE_USD = Number(process.env.MAX_TRADE_USD ?? '20')
 const MIN_EDGE_USD = Number(process.env.MIN_EDGE_USD ?? '0.01')
 const INTERVAL_MS = Number(process.env.INTERVAL_SEC ?? '60') * 1000
+const CHASE_MS = Number(process.env.CHASE_SEC ?? '5') * 1000
+// After a profitable trade, re-check only that corridor and direction quickly until the gap closes
+let chase: { X: TokenKey; route: 'uni->textile' | 'textile->uni' } | null = null
 const MAX_FLATTEN_LOSS_BPS = BigInt(process.env.MAX_FLATTEN_LOSS_BPS ?? '50') // 0.5%
 const MAX_HOLD_MS = Number(process.env.MAX_HOLD_MIN ?? '30') * 60_000
 const PORT = Number(process.env.PORT ?? 0)
@@ -153,11 +156,12 @@ type Opp = { X: TokenKey; route: 'uni->textile' | 'textile->uni'; size: bigint; 
 async function scan(size: bigint): Promise<Opp[]> {
   const opps: Opp[] = []
   for (const X of CORRIDORS) {
-    const a1 = await uniQuote('USDT', X, size)
+    if (chase && X !== chase.X) continue
+    const a1 = !chase || chase.route === 'uni->textile' ? await uniQuote('USDT', X, size) : null
     const a2 = a1 ? await texPreview(X, 'USDT', a1.out) : null
     if (a1 && a2) opps.push({ X, route: 'uni->textile', size, mid: a1.out, out: a2, uniFee: a1.fee, edge: usd(a2) - usd(size) })
 
-    const b1 = await texPreview('USDT', X, size)
+    const b1 = !chase || chase.route === 'textile->uni' ? await texPreview('USDT', X, size) : null
     const b2 = b1 ? await uniQuote(X, 'USDT', b1) : null
     if (b1 && b2) opps.push({ X, route: 'textile->uni', size, mid: b1, out: b2.out, uniFee: b2.fee, edge: usd(b2.out) - usd(size) })
   }
@@ -219,11 +223,13 @@ async function cycle() {
   status.lastScan = { at: new Date().toISOString(), maxSizeUsd: usd(size), opps: opps.map((o) => ({ X: o.X, route: o.route, sizeUsd: usd(o.size), outUsd: usd(o.out), edge: o.edge })) }
 
   const best = opps[0]
-  if (!best || best.edge < MIN_EDGE_USD) { console.log(`  no trade: best edge below $${MIN_EDGE_USD}`); return }
+  if (!best || best.edge < MIN_EDGE_USD) { if (chase) console.log('  gap closed, back to full scans'); chase = null; console.log(`  no trade: best edge below $${MIN_EDGE_USD}`); return }
   if (watchOnly) { console.log(`  watch mode: edge of $${best.edge.toFixed(4)} available, fund the wallet to trade it`); return }
   console.log(`  >> ${LIVE ? 'TRADING' : 'would trade'}: ${best.X} ${best.route} at $${usd(best.size).toFixed(2)}, expected +$${best.edge.toFixed(4)}`)
   if (LIVE) {
     const pnl = await execute(best)
+    chase = pnl !== null && pnl > 0 ? { X: best.X, route: best.route } : null
+    if (chase) console.log(`  chasing ${best.X} ${best.route}, next check in ${CHASE_MS / 1000}s`)
     console.log(`  result: ${pnl === null ? 'incomplete (leftover held and managed by flatten)' : (pnl >= 0 ? '+' : '') + pnl.toFixed(4) + ' USDT'}`)
   }
 }
@@ -303,5 +309,5 @@ while (true) {
   inCycle = false
   if (stopping) { console.log('  shutdown requested; exiting cleanly between cycles'); process.exit(0) }
   if (ONCE && !PORT) break
-  await sleep(INTERVAL_MS)
+  await sleep(chase ? CHASE_MS : INTERVAL_MS)
 }
