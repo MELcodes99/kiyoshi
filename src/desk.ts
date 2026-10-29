@@ -10,6 +10,7 @@ import { preview } from './textile.js'
 import { uniQuote, uniSwap } from './uniswap.js'
 import { convertStats, handleConvert } from './convert.js'
 import { flowSummary, netDeposits, updateFlows } from './flows.js'
+import { byEdge, candidateSizes, edgeUsd, parseLedger, pickBest, resolveBaseline, shouldHold, summarizeFills, tradeSize, usd, withSlippage as slip } from './strategy.js'
 
 const LIVE = process.env.LIVE === '1'
 const MAX_TRADE_USD = Number(process.env.MAX_TRADE_USD ?? '20')
@@ -28,9 +29,8 @@ const DATA_DIR = process.env.DATA_DIR ?? '.'
 const TRADES_FILE = DATA_DIR + '/trades.jsonl'
 const STATE_FILE = DATA_DIR + '/state.json'
 
-const usd = (v: bigint) => Number(formatUnits(v, 6))
 const amt = (k: TokenKey, v: bigint) => Number(formatUnits(v, TOKENS[k].decimals))
-const withSlippage = (v: bigint) => (v * (10_000n - SLIPPAGE_BPS)) / 10_000n
+const withSlippage = (v: bigint) => slip(v, SLIPPAGE_BPS)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 // Inventory left by a half-finished cycle, with what it cost, so flatten() won't dump it at a big loss.
@@ -40,11 +40,7 @@ let holdingInventory = false
 // ---------- ledger ----------
 type Entry = Record<string, any>
 const fills: Entry[] = [] // cycles and flattens (no scans), served at /trades
-if (existsSync(TRADES_FILE)) {
-  for (const line of readFileSync(TRADES_FILE, 'utf8').split('\n')) {
-    try { const e = JSON.parse(line); if (e.event === 'cycle' || e.event === 'flatten') fills.push(e) } catch {}
-  }
-}
+if (existsSync(TRADES_FILE)) fills.push(...parseLedger(readFileSync(TRADES_FILE, 'utf8')))
 function log(entry: Entry) {
   const line = JSON.stringify({ ts: new Date().toISOString(), live: LIVE, ...entry }, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))
   appendFileSync(TRADES_FILE, line + '\n')
@@ -59,15 +55,11 @@ const status: Entry = {
   lastScan: null, equity: null, baselineEquity: null, since: null, holding: false, lastError: null,
 }
 function summary() {
-  const cycles = fills.filter((f) => f.event === 'cycle' && typeof f.pnl === 'number')
   return {
     ...status,
     pnl: status.equity !== null ? status.equity - status.baselineEquity : null,
-    realizedPnl: cycles.reduce((s, f) => s + f.pnl, 0),
-    completedCycles: cycles.length,
-    textileFills: fills.filter((f) => typeof f.textileUsd === 'number').length,
+    ...summarizeFills(fills),
     convert: convertStats,
-    textileVolumeUsd: fills.reduce((s, f) => s + (typeof f.textileUsd === 'number' ? f.textileUsd : 0), 0),
   }
 }
 
@@ -125,9 +117,8 @@ async function flatten() {
 
     const p = pending.get(X)
     if (p) {
-      const floor = (p.costUsdt * (10_000n - MAX_FLATTEN_LOSS_BPS)) / 10_000n
       const age = Date.now() - p.since
-      if (exit.out < floor && age < MAX_HOLD_MS) {
+      if (shouldHold(exit.out, p.costUsdt, age, MAX_FLATTEN_LOSS_BPS, MAX_HOLD_MS)) {
         console.log(`  holding ${amt(X, bal).toFixed(4)} ${X}: best exit $${usd(exit.out).toFixed(4)} vs cost $${usd(p.costUsdt).toFixed(4)}, waiting for a better price (${Math.round(age / 60_000)}/${MAX_HOLD_MS / 60_000} min)`)
         holdingInventory = true
         continue
@@ -159,11 +150,11 @@ async function scan(size: bigint): Promise<Opp[]> {
     if (chase && X !== chase.X) continue
     const a1 = !chase || chase.route === 'uni->textile' ? await uniQuote('USDT', X, size) : null
     const a2 = a1 ? await texPreview(X, 'USDT', a1.out) : null
-    if (a1 && a2) opps.push({ X, route: 'uni->textile', size, mid: a1.out, out: a2, uniFee: a1.fee, edge: usd(a2) - usd(size) })
+    if (a1 && a2) opps.push({ X, route: 'uni->textile', size, mid: a1.out, out: a2, uniFee: a1.fee, edge: edgeUsd(a2, size) })
 
     const b1 = !chase || chase.route === 'textile->uni' ? await texPreview('USDT', X, size) : null
     const b2 = b1 ? await uniQuote(X, 'USDT', b1) : null
-    if (b1 && b2) opps.push({ X, route: 'textile->uni', size, mid: b1, out: b2.out, uniFee: b2.fee, edge: usd(b2.out) - usd(size) })
+    if (b1 && b2) opps.push({ X, route: 'textile->uni', size, mid: b1, out: b2.out, uniFee: b2.fee, edge: edgeUsd(b2.out, size) })
   }
   return opps
 }
@@ -205,25 +196,21 @@ async function cycle() {
   }
   const cash = await balanceOf(TOKENS.USDT.address)
   const cap = parseUnits(String(MAX_TRADE_USD), 6)
-  let size = LIVE ? (cash * 90n / 100n < cap ? cash * 90n / 100n : cap) : cap
-  const watchOnly = size < parseUnits('2', 6)
+  const { size, watchOnly } = tradeSize(cash, cap, LIVE)
   status.watchOnly = watchOnly
-  if (watchOnly) {
-    console.log(`  not enough USDT to trade (have ${usd(cash).toFixed(2)}); scanning in watch mode`)
-    size = cap
-  }
+  if (watchOnly) console.log(`  not enough USDT to trade (have ${usd(cash).toFixed(2)}); scanning in watch mode`)
 
   // Try a few sizes: bigger trades move Uniswap's price, so the best dollar profit is not always at max size.
-  const sizes = [...new Set([size, size / 2n, size / 4n])].filter((s) => s >= parseUnits('2', 6))
+  const sizes = candidateSizes(size)
   const opps: Opp[] = []
   for (const s of sizes) opps.push(...(await scan(s)))
-  opps.sort((a, b) => b.edge - a.edge)
+  opps.sort(byEdge)
 
   for (const o of opps.filter((o) => o.size === size)) console.log(`  ${o.X.padEnd(5)} ${o.route.padEnd(13)} $${usd(o.size).toFixed(2)} -> $${usd(o.out).toFixed(4)}  edge ${o.edge >= 0 ? '+' : ''}${o.edge.toFixed(4)}`)
   status.lastScan = { at: new Date().toISOString(), maxSizeUsd: usd(size), opps: opps.map((o) => ({ X: o.X, route: o.route, sizeUsd: usd(o.size), outUsd: usd(o.out), edge: o.edge })) }
 
-  const best = opps[0]
-  if (!best || best.edge < MIN_EDGE_USD) { if (chase) console.log('  gap closed, back to full scans'); chase = null; console.log(`  no trade: best edge below $${MIN_EDGE_USD}`); return }
+  const best = pickBest(opps, MIN_EDGE_USD)
+  if (!best) { if (chase) console.log('  gap closed, back to full scans'); chase = null; console.log(`  no trade: best edge below $${MIN_EDGE_USD}`); return }
   if (watchOnly) { console.log(`  watch mode: edge of $${best.edge.toFixed(4)} available, fund the wallet to trade it`); return }
   console.log(`  >> ${LIVE ? 'TRADING' : 'would trade'}: ${best.X} ${best.route} at $${usd(best.size).toFixed(2)}, expected +$${best.edge.toFixed(4)}`)
   if (LIVE) {
@@ -293,7 +280,8 @@ while (true) {
     await cycle()
     await updateFlows().catch((e: any) => console.error('  flows:', e.shortMessage ?? e.message))
     const net = netDeposits()
-    if (Number.isFinite(net)) { state.baselineEquity = net; status.baselineEquity = net }
+    state.baselineEquity = resolveBaseline(net, state.baselineEquity)
+    status.baselineEquity = state.baselineEquity
     status.capital = flowSummary()
     const eq = await equity()
     status.equity = eq

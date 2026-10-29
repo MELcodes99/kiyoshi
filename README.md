@@ -186,14 +186,14 @@ npm run typecheck
 ```bash
 cp .env.example .env
 npm run new-wallet       # prints a fresh throwaway key, paste it into AGENT_PRIVATE_KEY
-npm run desk             # LIVE=false: scans Textile vs Uniswap every 60s, sends nothing
+npm run desk             # LIVE=0: scans Textile vs Uniswap every 60s, sends nothing
 ```
 
 An unfunded wallet runs in watch mode: Kiyoshi quotes every corridor at full size and logs the edges it would trade. Open http://localhost:3000/status to see the live scan, /trades for the ledger, /health for liveness.
 
 ### Run live
 
-Fund the wallet with USDT on Celo (gas is paid in USDT through the fee-currency adapter, so no CELO needed), set `LIVE=true`, and run `npm run desk`. Only run one live instance per wallet.
+Fund the wallet with USDT on Celo (gas is paid in USDT through the fee-currency adapter, so no CELO needed), set `LIVE=1`, and run `npm run desk`. Only run one live instance per wallet.
 
 ### Verify onchain activity
 
