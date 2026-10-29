@@ -2,7 +2,7 @@
 import { writeFileSync } from 'node:fs'
 import { encodeFunctionData, parseAbi, parseEventLogs } from 'viem'
 import { verifyTx } from '@celo/attribution-tags'
-import { account, pub, sendTagged } from './wallet.js'
+import { account, pub, sendTagged } from '../src/wallet.js'
 
 const REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432' // Celo mainnet Identity Registry
 const abi = parseAbi([

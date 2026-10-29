@@ -1,9 +1,9 @@
 // Read-only health check. Sends NO transactions.
 import { formatUnits } from 'viem'
-import { account, pub, TAG_SUFFIX } from './wallet.js'
-import { balanceOf } from './swap.js'
-import { getTicker, preview } from './textile.js'
-import { ATTRIBUTION_TAG, TOKENS } from './config.js'
+import { account, pub, TAG_SUFFIX } from '../src/wallet.js'
+import { balanceOf } from '../src/swap.js'
+import { getTicker, preview } from '../src/textile.js'
+import { ATTRIBUTION_TAG, TOKENS } from '../src/config.js'
 
 console.log('Agent wallet :', account.address)
 console.log('Tag          :', ATTRIBUTION_TAG, '->', TAG_SUFFIX)

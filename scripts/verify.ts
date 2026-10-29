@@ -1,8 +1,8 @@
 // Verify Kiyoshi attribution on Celo transactions.
 // Usage: npx tsx src/verify.ts <txHash> [<txHash> ...]
 import { verifyTx } from '@celo/attribution-tags'
-import { pub } from './wallet.js'
-import { ATTRIBUTION_TAG, TEXTILE_REACTOR, TOKENS, UNI } from './config.js'
+import { pub } from '../src/wallet.js'
+import { ATTRIBUTION_TAG, TEXTILE_REACTOR, TOKENS, UNI } from '../src/config.js'
 
 const names: Record<string, string> = {
   [UNI.ROUTER.toLowerCase()]: 'Uniswap v3 SwapRouter02',

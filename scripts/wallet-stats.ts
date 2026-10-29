@@ -2,8 +2,8 @@
 // Usage: npx tsx src/wallet-stats.ts <address>
 import { formatUnits, parseAbiItem, type Address, type Hex } from 'viem'
 import { fromDataSuffix } from '@celo/attribution-tags'
-import { pub } from './wallet.js'
-import { ATTRIBUTION_TAG, TEXTILE_REACTOR, TOKENS, UNI, type TokenKey } from './config.js'
+import { pub } from '../src/wallet.js'
+import { ATTRIBUTION_TAG, TEXTILE_REACTOR, TOKENS, UNI, type TokenKey } from '../src/config.js'
 
 const who = (process.argv[2] ?? '').toLowerCase() as Address
 if (!/^0x[0-9a-f]{40}$/.test(who)) { console.log('Usage: npx tsx src/wallet-stats.ts <address>'); process.exit(1) }

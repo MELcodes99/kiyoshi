@@ -3,8 +3,8 @@
 // pairs buys and sells into round trips, and writes them as cycle/flatten entries. Safe to rerun.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { formatUnits, parseAbiItem, type Hex } from 'viem'
-import { account, pub } from './wallet.js'
-import { TEXTILE_REACTOR, TOKENS, UNI, type TokenKey } from './config.js'
+import { account, pub } from '../src/wallet.js'
+import { TEXTILE_REACTOR, TOKENS, UNI, type TokenKey } from '../src/config.js'
 
 const DATA_DIR = process.env.DATA_DIR ?? '.'
 const FILE = DATA_DIR + '/trades.jsonl'

@@ -1,8 +1,8 @@
 // Read-only: how much cNGN can be sold into the Uniswap pool before it stops beating Textile's bid?
 import { formatUnits, parseAbi, parseUnits, type Address } from 'viem'
-import { pub } from './wallet.js'
-import { preview } from './textile.js'
-import { TOKENS } from './config.js'
+import { pub } from '../src/wallet.js'
+import { preview } from '../src/textile.js'
+import { TOKENS } from '../src/config.js'
 
 const QUOTER: Address = '0x82825d0554fA07f7FC52Ab63c961F330fdEFa8E8'
 const quoterAbi = parseAbi([

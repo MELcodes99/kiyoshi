@@ -1,7 +1,7 @@
 // REAL MONEY. Usage: npm run trade -- USDT cNGN 1
 import { formatUnits, parseUnits } from 'viem'
-import { swap } from './swap.js'
-import { TOKENS, type TokenKey } from './config.js'
+import { swap } from '../src/swap.js'
+import { TOKENS, type TokenKey } from '../src/config.js'
 
 const [sell, buy, amount] = process.argv.slice(2) as [TokenKey, TokenKey, string]
 if (!TOKENS[sell] || !TOKENS[buy] || !amount) {

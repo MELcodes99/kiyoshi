@@ -169,3 +169,35 @@ npx tsx src/backfill.ts          # rebuilds every trade from the chain
 ---
 
 Built by **Mel Okoye** ([@0xJedi](https://github.com/MELcodes99)) for Celo's Agents on Open Rails hackathon.
+
+## How to run
+
+Requires Node 20+.
+
+```bash
+git clone https://github.com/MELcodes99/kiyoshi && cd kiyoshi
+npm ci
+npm test                 # unit + safety tests, no wallet or network needed
+npm run typecheck
+```
+
+### Run the agent without funds (watch mode)
+
+```bash
+cp .env.example .env
+npm run new-wallet       # prints a fresh throwaway key, paste it into AGENT_PRIVATE_KEY
+npm run desk             # LIVE=false: scans Textile vs Uniswap every 60s, sends nothing
+```
+
+An unfunded wallet runs in watch mode: Kiyoshi quotes every corridor at full size and logs the edges it would trade. Open http://localhost:3000/status to see the live scan, /trades for the ledger, /health for liveness.
+
+### Run live
+
+Fund the wallet with USDT on Celo (gas is paid in USDT through the fee-currency adapter, so no CELO needed), set `LIVE=true`, and run `npm run desk`. Only run one live instance per wallet.
+
+### Verify onchain activity
+
+```bash
+npx tsx scripts/verify.ts <tx hash or celoscan link>   # checks the ERC-8021 attribution tag
+npx tsx scripts/wallet-stats.ts                        # trades, volume and tag coverage
+```

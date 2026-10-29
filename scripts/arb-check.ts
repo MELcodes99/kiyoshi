@@ -1,8 +1,8 @@
 // Read-only: compare Uniswap (Celo) cNGN price vs Textile's cNGN bid. Sends NO transactions.
 import { formatUnits, parseAbi, parseUnits, type Address } from 'viem'
-import { pub } from './wallet.js'
-import { preview } from './textile.js'
-import { TOKENS } from './config.js'
+import { pub } from '../src/wallet.js'
+import { preview } from '../src/textile.js'
+import { TOKENS } from '../src/config.js'
 
 // Uniswap v3 on Celo
 const FACTORY: Address = '0xAfE208a311B21f13EF87E33A90049fC17A7acDEc'

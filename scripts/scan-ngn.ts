@@ -1,7 +1,7 @@
 // Read-only: test each hop of USDT -> USDm -> NGNm -> cNGN independently. Sends NO transactions.
 import { formatUnits, parseAbi, parseUnits, type Address } from 'viem'
-import { pub } from './wallet.js'
-import { preview } from './textile.js'
+import { pub } from '../src/wallet.js'
+import { preview } from '../src/textile.js'
 
 const T: Record<string, { a: Address; d: number }> = {
   USDT: { a: '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e', d: 6 },

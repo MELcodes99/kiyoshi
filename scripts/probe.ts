@@ -1,7 +1,7 @@
 // Read-only: find which sizes Textile makers will quote on Celo. Sends NO transactions.
 import { formatUnits } from 'viem'
-import { preview } from './textile.js'
-import { TOKENS } from './config.js'
+import { preview } from '../src/textile.js'
+import { TOKENS } from '../src/config.js'
 
 const legs = [
   { label: 'USDT -> cNGN', sell: TOKENS.USDT, buy: TOKENS.cNGN, sizes: ['1', '5', '10', '50', '200'] },

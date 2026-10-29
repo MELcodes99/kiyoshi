@@ -4,10 +4,12 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "new-wallet": "tsx src/new-wallet.ts",
-    "check": "tsx src/check.ts",
-    "trade": "tsx src/trade.ts",
-    "desk": "tsx src/desk.ts"
+    "new-wallet": "tsx scripts/new-wallet.ts",
+    "check": "tsx scripts/check.ts",
+    "trade": "tsx scripts/trade.ts",
+    "desk": "tsx src/desk.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@celo/attribution-tags": "latest",
@@ -15,6 +17,8 @@
     "viem": "^2.21.0"
   },
   "devDependencies": {
-    "tsx": "^4.23.15"
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }
