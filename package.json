@@ -9,7 +9,8 @@
     "trade": "tsx scripts/trade.ts",
     "desk": "tsx src/desk.ts",
     "test": "node --import tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "base-desk": "tsx src/base/desk.ts"
   },
   "dependencies": {
     "@celo/attribution-tags": "latest",
