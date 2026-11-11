@@ -174,6 +174,12 @@ async function execute(o: Opp): Promise<number | null> {
   const r = await textileSwap('USDT', X, o.size, withSlippage(o.mid))
   if (r.status !== 'filled') { log({ event: 'cycle', X, route: o.route, sizeUsd: usd(o.size), leg1: r.status, pnl: null }); return null }
   const q = await uniQuote(X, 'USDT', r.received)
+  // If Uniswap's price collapsed since the scan (e.g. the pool's USDT side drained), don't dump: hold for flatten().
+  if (q && shouldHold(q.out, o.size, 0, MAX_FLATTEN_LOSS_BPS, MAX_HOLD_MS)) {
+    pending.set(X, { costUsdt: o.size, since: Date.now() })
+    log({ event: 'cycle', X, route: o.route, sizeUsd: usd(o.size), tx1: r.txHash, textileUsd: usd(o.size), leg2: 'uniswap_price_collapsed', pnl: null })
+    return null
+  }
   if (!q) {
     pending.set(X, { costUsdt: o.size, since: Date.now() })
     log({ event: 'cycle', X, route: o.route, sizeUsd: usd(o.size), tx1: r.txHash, textileUsd: usd(o.size), leg2: 'no_uniswap_quote', pnl: null })
