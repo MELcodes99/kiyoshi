@@ -11,7 +11,7 @@ import { preview } from './textile.js'
 import { uniQuote, uniSwap } from './uniswap.js'
 import { convertStats, handleConvert } from './convert.js'
 import { flowSummary, netDeposits, updateFlows } from './flows.js'
-import { byEdge, candidateSizes, edgeUsd, parseLedger, pickBest, resolveBaseline, shouldHold, summarizeFills, tradeSize, usd, withSlippage as slip } from './strategy.js'
+import { byEdge, candidateSizes, edgeUsd, parseLedger, pickBest, resolveBaseline, shouldHold, pnlSeries, summarizeFills, tradeSize, usd, withSlippage as slip } from './strategy.js'
 
 const LIVE = process.env.LIVE === '1'
 const MAX_TRADE_USD = Number(process.env.MAX_TRADE_USD ?? '20')
@@ -310,6 +310,14 @@ if (PORT) {
       return
     }
     if (url.pathname === '/all/status') { allStatus().then(json); return }
+    if (url.pathname === '/pnl') return json(pnlSeries(fills))
+    if (url.pathname === '/all/pnl') {
+      baseGet('/pnl-raw').then((b: any[] | null) => json(pnlSeries([
+        ...fills.map((f) => ({ ...f, chain: 'celo' })),
+        ...(b ?? []).map((f) => ({ event: 'cycle', ...f, chain: 'base' })),
+      ])))
+      return
+    }
     if (url.pathname === '/all/trades') { allTrades(Math.min(Number(url.searchParams.get('limit') ?? 100), 1000)).then(json); return }
     if (url.pathname === '/health') return res.end('ok')
     if (url.pathname === '/status') return json(summary())

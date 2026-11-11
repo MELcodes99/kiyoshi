@@ -58,3 +58,23 @@ test('summary: realized P&L counts completed cycles only, volume counts Textile 
   assert.equal(s.textileFills, 3)
   assert.equal(s.textileVolumeUsd, 35)
 })
+
+import { pnlSeries } from '../src/strategy.js'
+test('pnl series: cumulative, time-ordered, ends at the realized total', () => {
+  const s = pnlSeries([
+    { event: 'cycle', ts: '2026-11-02T00:00:00Z', pnl: 0.5 },
+    { event: 'cycle', ts: '2026-11-01T00:00:00Z', pnl: 0.25 },
+    { event: 'cycle', ts: '2026-11-03T00:00:00Z', pnl: null },
+    { event: 'flatten', ts: '2026-11-03T00:00:00Z' },
+  ])
+  assert.equal(s.cycles, 2)
+  assert.deepEqual(s.points.map((p) => p.pnl), [0.25, 0.75])
+  assert.equal(s.total, 0.75)
+})
+test('pnl series: downsampling keeps the final point', () => {
+  const fills = Array.from({ length: 1000 }, (_, i) => ({ event: 'cycle', ts: new Date(1e12 + i * 1000).toISOString(), pnl: 0.01 }))
+  const s = pnlSeries(fills, 100)
+  assert.ok(s.points.length <= 101)
+  assert.equal(s.points.at(-1)!.pnl, s.total)
+  assert.ok(Math.abs(s.total - 10) < 1e-6)
+})

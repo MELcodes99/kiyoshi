@@ -63,3 +63,15 @@ export function summarizeFills(fills: Fill[]) {
     textileVolumeUsd: fills.reduce((s, f) => s + (typeof f.textileUsd === 'number' ? f.textileUsd : 0), 0),
   }
 }
+
+/** Cumulative realized P&L over every completed cycle, downsampled for charting. Last point always equals the total. */
+export function pnlSeries(fills: Fill[], maxPoints = 300) {
+  const cycles = fills
+    .filter((f) => f.event === 'cycle' && typeof f.pnl === 'number' && f.ts)
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts)))
+  let cum = 0
+  const all = cycles.map((f) => ({ t: String(f.ts), pnl: +(cum += f.pnl).toFixed(4), ...(f.chain ? { chain: f.chain } : {}) }))
+  const step = Math.max(1, Math.ceil(all.length / maxPoints))
+  const points = all.filter((_, i) => i % step === 0 || i === all.length - 1)
+  return { total: +cum.toFixed(4), cycles: cycles.length, from: all[0]?.t ?? null, to: all.at(-1)?.t ?? null, points }
+}

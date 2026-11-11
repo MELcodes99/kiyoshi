@@ -9,7 +9,7 @@ import { BASE_TOKENS } from './config.js'
 import { preview } from './textile.js'
 import { textileSwap } from './swap.js'
 import { v4Quote, v4Swap } from './uniswap.js'
-import { byEdge, candidateSizes, edgeUsd, parseLedger, pickBest, shouldHold, summarizeFills, tradeSize, usd, withSlippage as slip } from '../strategy.js'
+import { byEdge, candidateSizes, edgeUsd, parseLedger, pickBest, shouldHold, pnlSeries, summarizeFills, tradeSize, usd, withSlippage as slip } from '../strategy.js'
 import { textileStats } from '../textileLimit.js'
 
 const LIVE = process.env.LIVE === '1'
@@ -181,6 +181,8 @@ if (PORT) {
     const json = (body: unknown) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body, null, 2)) }
     if (url.pathname === '/health') return res.end('ok')
     if (url.pathname === '/status') return json(summary())
+    if (url.pathname === '/pnl') return json(pnlSeries(fills))
+    if (url.pathname === '/pnl-raw') return json(fills.filter((f) => f.event === 'cycle' && typeof f.pnl === 'number').map((f) => ({ ts: f.ts, pnl: f.pnl })))
     if (url.pathname === '/trades') return json(fills.slice(-Math.min(Number(url.searchParams.get('limit') ?? 100), 1000)).reverse())
     res.statusCode = 404
     res.end('not found')
