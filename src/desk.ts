@@ -1,6 +1,7 @@
 // Kiyoshi trading loop. Dry run by default; LIVE=1 trades real money.
 // Set PORT to also serve /health, /status and /trades (for Render and the dashboard).
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:http'
 import { formatUnits, parseUnits } from 'viem'
 import { ATTRIBUTION_TAG, CORRIDORS, TOKENS, type TokenKey } from './config.js'
@@ -227,6 +228,73 @@ async function cycle() {
   }
 }
 
+// ---------- Kiyoshi Base: runs alongside in the same service ----------
+const BASE_ENABLED = process.env.BASE_ENABLED !== '0' && !ONCE
+const BASE_PORT = Number(process.env.BASE_PORT ?? 10001)
+let baseChild: ChildProcess | null = null
+let baseStopping = false
+
+function startBase() {
+  if (!BASE_ENABLED || baseStopping) return
+  // Base reads its own BASE_* settings, so Celo's values (like BASELINE_EQUITY) never leak across
+  const env: Record<string, string | undefined> = { ...process.env, PORT: String(BASE_PORT), LIVE: process.env.BASE_LIVE ?? '0' }
+  const map: Record<string, string> = {
+    MAX_TRADE_USD: 'BASE_MAX_TRADE_USD', MIN_EDGE_USD: 'BASE_MIN_EDGE_USD', INTERVAL_SEC: 'BASE_INTERVAL_SEC', CHASE_SEC: 'BASE_CHASE_SEC',
+    MAX_FLATTEN_LOSS_BPS: 'BASE_MAX_FLATTEN_LOSS_BPS', MAX_HOLD_MIN: 'BASE_MAX_HOLD_MIN', SLIPPAGE_BPS: 'BASE_SLIPPAGE_BPS', MIN_GAS_ETH: 'BASE_MIN_GAS_ETH',
+    BASELINE_EQUITY: 'BASE_BASELINE_EQUITY', BASELINE_SINCE: 'BASE_BASELINE_SINCE', STARTUP_DELAY_SEC: 'BASE_STARTUP_DELAY_SEC',
+  }
+  for (const [k, b] of Object.entries(map)) env[k] = process.env[b]
+  for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k]
+  baseChild = spawn(process.execPath, ['--import', 'tsx', 'src/base/desk.ts'], { env: env as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+  const tag = (c: Buffer) => c.toString().split('\n').filter(Boolean).map((l) => '[base] ' + l).join('\n')
+  baseChild.stdout?.on('data', (c: Buffer) => console.log(tag(c)))
+  baseChild.stderr?.on('data', (c: Buffer) => console.error(tag(c)))
+  baseChild.on('exit', (code) => {
+    baseChild = null
+    if (baseStopping) return
+    console.error(`[base] exited (code ${code}); restarting in 30s`)
+    setTimeout(startBase, 30_000)
+  })
+}
+function stopBase(): Promise<void> {
+  baseStopping = true
+  const c = baseChild
+  if (!c) return Promise.resolve()
+  return new Promise((resolve) => {
+    const t = setTimeout(() => { c.kill('SIGKILL'); resolve() }, 90_000)
+    c.on('exit', () => { clearTimeout(t); resolve() })
+    c.kill('SIGTERM')
+  })
+}
+async function baseGet(path: string): Promise<any> {
+  if (!BASE_ENABLED) return null
+  try {
+    const r = await fetch(`http://127.0.0.1:${BASE_PORT}${path}`, { signal: AbortSignal.timeout(3000) })
+    return r.ok ? await r.json() : null
+  } catch { return null }
+}
+const TOTAL_KEYS = ['equity', 'pnl', 'realizedPnl', 'textileVolumeUsd', 'completedCycles', 'textileFills'] as const
+async function allStatus() {
+  const c: any = summary()
+  const b: any = await baseGet('/status')
+  const pick = (x: any) => Object.fromEntries(TOTAL_KEYS.map((k) => [k, x?.[k] ?? null]))
+  const totals = Object.fromEntries(TOTAL_KEYS.map((k) => [k, (Number(c[k]) || 0) + (Number(b?.[k]) || 0)]))
+  return {
+    at: new Date().toISOString(),
+    totals,
+    chains: {
+      celo: { ...pick(c), live: c.live, watchOnly: c.watchOnly ?? false, holding: c.holding, online: true },
+      base: { ...pick(b), live: b?.live ?? false, watchOnly: b?.watchOnly ?? false, holding: b?.holding ?? false, online: !!b },
+    },
+  }
+}
+async function allTrades(n: number) {
+  const b: any[] = (await baseGet(`/trades?limit=${n}`)) ?? []
+  const merged = [...fills.slice(-n).map((f) => ({ chain: 'celo', ...f })), ...b.map((f) => ({ chain: 'base', ...f }))]
+  return merged.sort((x, y) => String(y.ts).localeCompare(String(x.ts))).slice(0, n)
+}
+startBase()
+
 // ---------- web endpoint ----------
 if (PORT) {
   createServer((req, res) => {
@@ -237,6 +305,12 @@ if (PORT) {
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.pathname.startsWith('/convert/')) { handleConvert(req, res, url); return }
     const json = (body: unknown) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body, null, 2)) }
+    if (url.pathname.startsWith('/base/')) {
+      baseGet(url.pathname.slice(5) + url.search).then((b) => { if (b === null) res.statusCode = 503; json(b ?? { error: 'Kiyoshi Base is not running' }) })
+      return
+    }
+    if (url.pathname === '/all/status') { allStatus().then(json); return }
+    if (url.pathname === '/all/trades') { allTrades(Math.min(Number(url.searchParams.get('limit') ?? 100), 1000)).then(json); return }
     if (url.pathname === '/health') return res.end('ok')
     if (url.pathname === '/status') return json(summary())
     if (url.pathname === '/trades') {
@@ -268,7 +342,7 @@ let inCycle = false
 process.on('SIGTERM', () => {
   stopping = true
   console.log('  SIGTERM received' + (inCycle ? '; finishing the current cycle first' : ''))
-  if (!inCycle) process.exit(0)
+  if (!inCycle) stopBase().then(() => process.exit(0))
 })
 const STARTUP_DELAY_MS = Number(process.env.STARTUP_DELAY_SEC ?? (LIVE ? '60' : '0')) * 1000
 if (STARTUP_DELAY_MS > 0) {
@@ -301,7 +375,7 @@ while (true) {
     log({ event: 'error', message: msg })
   }
   inCycle = false
-  if (stopping) { console.log('  shutdown requested; exiting cleanly between cycles'); process.exit(0) }
+  if (stopping) { console.log('  shutdown requested; exiting cleanly between cycles'); await stopBase(); process.exit(0) }
   if (ONCE && !PORT) break
   await sleep(chase ? CHASE_MS : INTERVAL_MS)
 }
