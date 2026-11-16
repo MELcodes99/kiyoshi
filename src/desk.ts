@@ -9,6 +9,7 @@ import { account, pub, lastTxBlock } from './wallet.js'
 import { balanceOf, swap as textileSwap } from './swap.js'
 import { preview } from './textile.js'
 import { uniQuote, uniSwap } from './uniswap.js'
+import { executeV4, scanV4 } from './v4celo.js'
 import { convertStats, handleConvert } from './convert.js'
 import { flowSummary, netDeposits, updateFlows } from './flows.js'
 import { byEdge, candidateSizes, edgeUsd, parseLedger, pickBest, resolveBaseline, shouldHold, pnlSeries, summarizeFills, tradeSize, usd, withSlippage as slip } from './strategy.js'
@@ -19,7 +20,7 @@ const MIN_EDGE_USD = Number(process.env.MIN_EDGE_USD ?? '0.01')
 const INTERVAL_MS = Number(process.env.INTERVAL_SEC ?? '60') * 1000
 const CHASE_MS = Number(process.env.CHASE_SEC ?? '5') * 1000
 // After a profitable trade, re-check only that corridor and direction quickly until the gap closes
-let chase: { X: TokenKey; route: 'uni->textile' | 'textile->uni' } | null = null
+let chase: { X: TokenKey; route: string } | null = null
 const MAX_FLATTEN_LOSS_BPS = BigInt(process.env.MAX_FLATTEN_LOSS_BPS ?? '50') // 0.5%
 const MAX_HOLD_MS = Number(process.env.MAX_HOLD_MIN ?? '30') * 60_000
 const PORT = Number(process.env.PORT ?? 0)
@@ -143,7 +144,7 @@ async function flatten() {
   return soldOnTextile
 }
 
-type Opp = { X: TokenKey; route: 'uni->textile' | 'textile->uni'; size: bigint; mid: bigint; out: bigint; uniFee: number; edge: number }
+type Opp = { X: TokenKey; route: string; size: bigint; mid: bigint; out: bigint; uniFee: number; edge: number; v4?: unknown }
 
 async function scan(size: bigint): Promise<Opp[]> {
   const opps: Opp[] = []
@@ -157,10 +158,12 @@ async function scan(size: bigint): Promise<Opp[]> {
     const b2 = b1 ? await uniQuote(X, 'USDT', b1) : null
     if (b1 && b2) opps.push({ X, route: 'textile->uni', size, mid: b1, out: b2.out, uniFee: b2.fee, edge: edgeUsd(b2.out, size) })
   }
+  opps.push(...(await scanV4(size, undefined, chase)))
   return opps
 }
 
 async function execute(o: Opp): Promise<number | null> {
+  if (o.v4) return executeV4(o as any, { pending, log, maxLossBps: MAX_FLATTEN_LOSS_BPS, maxHoldMs: MAX_HOLD_MS, minEdgeUnits: parseUnits(String(MIN_EDGE_USD), 6), slippageBps: SLIPPAGE_BPS })
   const X = o.X
   if (o.route === 'uni->textile') {
     const { hash: tx1, out: got } = await uniSwap('USDT', X, o.size, o.uniFee, withSlippage(o.mid))

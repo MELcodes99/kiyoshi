@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { limitedFetch } from './textileLimit.js'
 import { toHex, type Address } from 'viem'
 import { account } from './wallet.js'
 import { CHAIN_ID, TEXTILE_API } from './config.js'
@@ -7,7 +8,7 @@ const V2 = `${TEXTILE_API}/v2`
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 export async function getTicker(id = 'USDT_NGN') {
-  const r = await fetch(`${TEXTILE_API}/tickers?ticker_id=${id}`)
+  const r = await limitedFetch(`${TEXTILE_API}/tickers?ticker_id=${id}`)
   if (!r.ok) throw new Error(`tickers ${r.status}`)
   const [t] = await r.json()
   return t as { last_price: string; bid: string; ask: string; base_volume: string }
@@ -41,7 +42,7 @@ async function unwrap(res: Response) {
 type Leg = { sellToken: Address; buyToken: Address; sellAmount: string }
 
 export async function preview(leg: Leg) {
-  const res = await fetch(`${V2}/rfq/preview`, {
+  const res = await limitedFetch(`${V2}/rfq/preview`, {
     method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ chainId: CHAIN_ID, ...leg }),
   })
   return unwrap(res)
@@ -67,13 +68,13 @@ export async function requestQuote(leg: Leg) {
 }
 
 export async function submitTx(rfqId: string, claimToken: string, txHash: string) {
-  const res = await fetch(`${V2}/rfq/${rfqId}/submit`, {
+  const res = await limitedFetch(`${V2}/rfq/${rfqId}/submit`, {
     method: 'POST', headers: { ...JSON_HEADERS, 'X-Rfq-Claim': claimToken }, body: JSON.stringify({ txHash }),
   })
   return unwrap(res)
 }
 
 export async function getRfq(rfqId: string, claimToken: string) {
-  const res = await fetch(`${V2}/rfq/${rfqId}`, { headers: { 'X-Rfq-Claim': claimToken } })
+  const res = await limitedFetch(`${V2}/rfq/${rfqId}`, { headers: { 'X-Rfq-Claim': claimToken } })
   return unwrap(res)
 }
