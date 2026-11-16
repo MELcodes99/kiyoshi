@@ -18,7 +18,9 @@ export const V4 = {
 }
 // v4 pools traded against Textile. X = corridor token, S = the stablecoin it is paired with in the pool.
 const POOLS: { id: Hex; X: TokenKey; S: TokenKey }[] = [
-  { id: '0xa7e41e2c1da9a6ab0a0d7e10dc1c23581c6cd9e31b449ab3a13683fa389d54f9', X: 'wBRL', S: 'USDC' },
+  { id: '0xa7e41e2c1da9a6ab0a0d7e10dc1c23581c6cd9e31b449ab3a13683fa389d54f9', X: 'wBRL', S: 'USDC' }, // 0.1% fee
+  { id: '0x984606c207b6a4d56e20bd27bc963ff370b3aaa3af7070c62a189ac0d2aa5265', X: 'wBRL', S: 'USDC' }, // 0.3% fee
+  { id: '0x59f80a50a2181e7adad4476c0caa338bb6eb53a5e35db98e64b41f090a54239c', X: 'wARS', S: 'USDC' }, // 0.3% fee
 ]
 
 const pmAbi = parseAbi(['function poolKeys(bytes25) view returns (address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks)'])
